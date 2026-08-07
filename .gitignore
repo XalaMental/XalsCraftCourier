@@ -1,0 +1,16 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# Build/packaging artifacts
+*.zip
+/dist/
+/build/
+
+# WoW SavedVariables shouldn't ever live in the addon repo
+WTF/

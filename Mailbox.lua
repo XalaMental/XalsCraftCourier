@@ -606,7 +606,7 @@ end
 -- before anything is queued) or [Cancel] to back out.
 -- ══════════════════════════════════════════════════════════════
 function M:BuildPreviewFrame()
-    local FW, FH = 560, 508
+    local FW, FH = 560, 524
     local f = CreateFrame("Frame", "XC_PreviewFrame", UIParent)
     f:SetSize(FW, FH)
     f:SetPoint("CENTER")
@@ -638,10 +638,10 @@ function M:BuildPreviewFrame()
 
     -- Title — MORPHEUS.TTF, same treatment as the splash screen's title
     local title = f:CreateFontString(nil, "OVERLAY")
-    title:SetFont("Fonts\\MORPHEUS.TTF", 18, "OUTLINE")
+    title:SetFont("Fonts\\MORPHEUS.TTF", 24, "OUTLINE")
     title:SetTextColor(0.72, 0.55, 0.22, 1)
     title:SetText("Send Preview")
-    title:SetPoint("TOP", f, "TOP", 0, -22)
+    title:SetPoint("TOP", f, "TOP", 0, -24)
 
     -- ── TAB BAR (Personal / Guild) ──────────────────────────────
     -- Always a deliberate, separate choice — never an automatic
@@ -652,7 +652,7 @@ function M:BuildPreviewFrame()
     local function MakeTabBtn(text, color, x)
         local btn = CreateFrame("Button", nil, f)
         btn:SetSize(180, 24)
-        btn:SetPoint("TOP", f, "TOP", x, -40)
+        btn:SetPoint("TOP", f, "TOP", x, -58)
         local bg = btn:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         btn.bg = bg
@@ -677,8 +677,8 @@ function M:BuildPreviewFrame()
 
     -- Divider
     local div = f:CreateTexture(nil, "ARTWORK")
-    div:SetPoint("TOPLEFT",  f, "TOPLEFT",  20, -72)
-    div:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -72)
+    div:SetPoint("TOPLEFT",  f, "TOPLEFT",  20, -90)
+    div:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -90)
     div:SetHeight(1); div:SetColorTexture(0.32, 0.24, 0.10, 1)
 
     -- Profession sidebar (left) — only lists professions that actually
@@ -686,7 +686,7 @@ function M:BuildPreviewFrame()
     -- content list to just that profession, or "All" to see everything.
     local SIDEBAR_W = 110
     local sidebar = CreateFrame("Frame", nil, f)
-    sidebar:SetPoint("TOPLEFT",     f, "TOPLEFT",     14, -80)
+    sidebar:SetPoint("TOPLEFT",     f, "TOPLEFT",     14, -98)
     sidebar:SetPoint("BOTTOMLEFT",  f, "BOTTOMLEFT",  14,  56)
     sidebar:SetWidth(SIDEBAR_W)
     f.sidebar = sidebar

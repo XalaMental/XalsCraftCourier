@@ -7,13 +7,14 @@ to the right crafter, personal or guild, in one click.
 ## Features
 
 - **Assign a dedicated crafter for every profession** - each profession gets its own recipient
-- **One-click mailing at any mailbox** - a themed "Send to Crafters" button on the default Send Mail frame
-- **Personal and Guild tabs** - always a deliberate, separate choice, never an automatic fallback
-- **Confirmation before sending** - a direct "Send to CHARNAME?" check before anything is queued
+- **True one-click mailing at any mailbox** - a themed "Send to Crafters" button on the default Send Mail frame; hit Send All and every mail sends itself automatically. Drag the button anywhere and right-click to lock it in place
+- **Personal and Guild tabs** - always a deliberate, separate choice, never an automatic fallback - guild crafters are kept fully separate per guild
+- **Profession list in the send window** - every profession is shown, with a green dot marking which ones have something ready to send right now
 - **Smart bag scanning** - reads every bag, including the reagent bag
 - **Filter system** - control which expansions and item types (reagents, tools, recipes) go to each crafter
 - **Full guild crafter support** - pulls your live guild roster straight into the crafter picker
 - **Quick setup screen** - guided first-run panel, plus a full Options panel for fine-tuning
+- **Plays nicely with other mailing addons** - works correctly alongside TSM and similar addons that customize the mailbox
 
 ## Commands
 
@@ -34,4 +35,4 @@ to the right crafter, personal or guild, in one click.
 
 ## License
 
-All Rights Reserved -- see [LICENSE.md](LICENSE.md).
+MIT License -- see [LICENSE.md](LICENSE.md).

@@ -1,12 +1,21 @@
-Copyright (c) 2026 Xal. All Rights Reserved.
+MIT License
 
-This repository and its contents (including but not limited to the Lua
-source code, TOC file, and bundled icon artwork) are the property of
-the copyright holder. No part of this addon may be copied, modified,
-redistributed, sublicensed, or used to create derivative works without
-the copyright holder's prior written permission.
+Copyright (c) 2026 Xal
 
-You may download and use the compiled/released addon through official
-distribution channels (e.g. CurseForge, GitHub Releases) for personal,
-non-commercial use in World of Warcraft, subject to the terms of those
-platforms.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

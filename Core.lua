@@ -88,8 +88,26 @@ function XC:OnLoad()
 
     -- Global settings (reserved for future options)
     XC_DB.settings  = XC_DB.settings  or {}
+    -- Overall panel scale (Options/Splash/the mailbox send preview),
+    -- applied via frame:SetScale() - takes effect immediately on
+    -- already-open panels. Set from Options -> Settings.
+    XC_DB.settings.uiScale = XC_DB.settings.uiScale or 1.0
+    -- Independent text-size multiplier applied to every font this addon
+    -- draws (titles, buttons, labels) - separate from uiScale, since
+    -- panel size and font size are different things. Takes effect on
+    -- panels built/opened after the change - existing open panels need a
+    -- /reload to pick up a new value, since each FontString's size is
+    -- baked in at creation. Set from Options -> Settings.
+    XC_DB.settings.fontScale = XC_DB.settings.fontScale or 1.0
+    XC.BrandStyle.RefreshSavedScales()
 
-    -- Register the Blizzard AddOns options panel (defined in Options.lua)
+    -- Minimap launcher icon (LibDataBroker + LibDBIcon) - registered
+    -- before Options so XC_DB.minimap already exists when the Settings
+    -- window builds its "Show the minimap button" checkbox.
+    XC.MinimapButton:Register()
+
+    -- Build the standalone Options window (defined in Options.lua) - a
+    -- real floating panel now, not a Blizzard AddOns-list entry.
     XC.Options:Register()
 
     -- XC_CharDB  ─ per-character storage (each alt is independent)
@@ -138,6 +156,11 @@ function XC:OnPlayerLogin()
         C_Timer.After(1.5, function()
             XC.Splash:Open()
         end)
+    else
+        -- Only check for a what's-new splash on a character who's already
+        -- been through the welcome screen before - a genuinely first-time
+        -- install gets the Splash as its intro, not both popups at once.
+        XC.WhatsNew:CheckAndShow()
     end
 
     XC:RecordMyGuild()

@@ -13,136 +13,40 @@
 XC = XC or {}
 XC.Splash = {}
 local S = XC.Splash
+local Brand = XC.BrandStyle
 
 -- ── Frame dimensions ──────────────────────────────────────────
 local FW = 580   -- frame width  (pixels)
 local FH = 420   -- frame height (pixels)
 
 -- ── Colours (r, g, b) ─────────────────────────────────────────
-local ACCENT      = { 0.72, 0.55, 0.22 }   -- warm bronze-gold, matches the addon icon
-local GOLD     = { 0.60, 0.47, 0.30 }
-local STEEL_P  = 0.15   -- primary button brightness
-local STEEL_S  = 0.12   -- secondary button brightness
+-- Aliased to the shared brand module - these ARE where the brand's
+-- accent/gold colors originally came from, so the values are unchanged,
+-- just sourced from one shared place now instead of redefined per file.
+local ACCENT = Brand.ACCENT
+local GOLD   = Brand.GOLD
 
 
 -- ==============================================================
--- UTILITY HELPERS
+-- UTILITY HELPERS  (shared brand module - same T()/FS() signatures
+-- this file always used, just no longer redefined locally)
 -- ==============================================================
-
--- T()  ─ creates a solid-coloured texture rectangle.
---         x, y are measured from the frame's TOP-LEFT corner
---         (y increases downward, matching how most people think).
-local function T(parent, x, y, w, h, r, g, b, a, layer)
-    local tex = parent:CreateTexture(nil, layer or "ARTWORK")
-    tex:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
-    tex:SetSize(w, h)
-    tex:SetColorTexture(r, g, b, a or 1)
-    return tex
-end
-
--- FS()  ─ creates a FontString with a specific font, size, and colour.
-local function FS(parent, text, fontPath, size, flags, r, g, b)
-    local fs = parent:CreateFontString(nil, "OVERLAY")
-    fs:SetFont(fontPath, size, flags or "")
-    fs:SetText(text)
-    fs:SetTextColor(r, g, b, 1)
-    return fs
-end
+local T  = Brand.T
+local FS = Brand.FS
 
 
 -- ==============================================================
--- STEEL BUTTON FACTORY
--- Creates a custom button styled to match the dark/steel theme.
--- primary=true  → slightly lighter steel, bright red text
--- primary=false → darker steel, dimmer red text (secondary action)
+-- BUTTON FACTORY
+-- Xal's shared flat button style (Brand.MakeButton) - replaces the old
+-- beveled "steel" look, which read visually inconsistent once several
+-- buttons sat in a row. `primary` now maps to SetSelected(true): a
+-- brighter fill + white label for the emphasized action in a pair,
+-- same visual role the old primary=true used to carry.
 -- ==============================================================
 local function MakeButton(parent, text, w, h, primary)
-    local base = primary and STEEL_P or STEEL_S
-    local tR   = primary and ACCENT[1]  or 0.55
-    local tG   = primary and ACCENT[2]  or 0.42
-    local tB   = primary and ACCENT[3]  or 0.20
-
-    local btn = CreateFrame("Button", nil, parent)
-    btn:SetSize(w, h)
-
-    -- Body fill
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(base, base, base, 1)
-
-    -- Top-edge highlight  (lighter stripe → "steel" look)
-    local eTop = btn:CreateTexture(nil, "OVERLAY")
-    eTop:SetPoint("TOPLEFT",  btn, "TOPLEFT",  0, 0)
-    eTop:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-    eTop:SetHeight(1)
-    eTop:SetColorTexture(0.30, 0.30, 0.30, 1)
-
-    -- Bottom-edge shadow  (darker stripe)
-    local eBot = btn:CreateTexture(nil, "OVERLAY")
-    eBot:SetPoint("BOTTOMLEFT",  btn, "BOTTOMLEFT",  0, 0)
-    eBot:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
-    eBot:SetHeight(1)
-    eBot:SetColorTexture(0.07, 0.07, 0.07, 1)
-
-    -- Left-edge highlight
-    local eL = btn:CreateTexture(nil, "OVERLAY")
-    eL:SetPoint("TOPLEFT",    btn, "TOPLEFT",    0, -1)
-    eL:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0,  1)
-    eL:SetWidth(1)
-    eL:SetColorTexture(0.24, 0.24, 0.24, 1)
-
-    -- Right-edge shadow
-    local eR = btn:CreateTexture(nil, "OVERLAY")
-    eR:SetPoint("TOPRIGHT",    btn, "TOPRIGHT",    0, -1)
-    eR:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0,  1)
-    eR:SetWidth(1)
-    eR:SetColorTexture(0.09, 0.09, 0.09, 1)
-
-    -- Label
-    local lbl = btn:CreateFontString(nil, "OVERLAY")
-    lbl:SetFont("Fonts\\ARIALN.TTF", 12, "OUTLINE")
-    lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-    lbl:SetText(text)
-    lbl:SetTextColor(tR, tG, tB, 1)
-    btn.label = lbl
-
-    -- Hover / press visual feedback
-    btn:SetScript("OnEnter", function(self)
-        bg:SetColorTexture(base + 0.05, base + 0.05, base + 0.05, 1)
-    end)
-    btn:SetScript("OnLeave", function(self)
-        bg:SetColorTexture(base, base, base, 1)
-    end)
-    btn:SetScript("OnMouseDown", function(self)
-        bg:SetColorTexture(base - 0.04, base - 0.04, base - 0.04, 1)
-        lbl:ClearAllPoints()
-        lbl:SetPoint("CENTER", self, "CENTER", 1, -1)  -- subtle push-down
-    end)
-    btn:SetScript("OnMouseUp", function(self)
-        bg:SetColorTexture(base, base, base, 1)
-        lbl:ClearAllPoints()
-        lbl:SetPoint("CENTER", self, "CENTER", 0, 0)
-    end)
-
+    local btn = Brand.MakeButton(parent, text, w, h, nil)
+    if primary then btn:SetSelected(true) end
     return btn
-end
-
-
--- ==============================================================
--- BORDER DRAW
--- Called once when the frame is first created. Kept deliberately
--- simple - a single clean line, no corner ornaments or tick marks.
--- ==============================================================
-local function DrawBorderAndCorners(f)
-    local W, H = FW, FH
-    local r, g, b = ACCENT[1], ACCENT[2], ACCENT[3]
-    local INSET = 6
-
-    local THICK = 2
-    T(f, INSET, INSET,   W - INSET*2, THICK, r, g, b)              -- top
-    T(f, INSET, H-INSET, W - INSET*2, THICK, r, g, b)              -- bottom
-    T(f, INSET, INSET,   THICK, H - INSET*2, r, g, b)              -- left
-    T(f, W-INSET, INSET, THICK, H - INSET*2, r, g, b)              -- right
 end
 
 
@@ -157,30 +61,20 @@ local function BuildSplashPanel(f)
 
     -- Title — MORPHEUS.TTF, WoW's own ornate built-in font (used for mail
     -- text and quest log headers), instead of the same FRIZQT sans-serif
-    -- used everywhere else in the addon. A drop-shadow layer behind it
-    -- for depth, since there's no custom font file in scope here.
-    local titleShadow = FS(panel, "Xal's Craft Courier",
-        "Fonts\\MORPHEUS.TTF", 34, "OUTLINE",
-        0.05, 0.04, 0.02)
-    titleShadow:SetPoint("TOP", panel, "TOP", 2, -40)
-    titleShadow:SetJustifyH("CENTER")
-
-    local title = FS(panel, "Xal's Craft Courier",
-        "Fonts\\MORPHEUS.TTF", 34, "OUTLINE",
-        ACCENT[1], ACCENT[2], ACCENT[3])
-    title:SetPoint("TOP", panel, "TOP", 0, -38)
-    title:SetJustifyH("CENTER")
+    -- used everywhere else in the addon. Brand.Title handles the
+    -- drop-shadow layer behind it.
+    local title = Brand.Title(panel, "Xal's Craft Courier", 34, "TOP", panel, "TOP", 0, -38)
 
     -- Tagline
     local tag = FS(panel, "PERSONAL  &  GUILD  CRAFTING  LOGISTICS  PLATFORM",
-        "Fonts\\ARIALN.TTF", 11, "",
+        "Fonts\\ARIALN.TTF", Brand.DESC_FONT_SIZE, "",
         GOLD[1]-0.12, GOLD[2]-0.13, GOLD[3]-0.11)
     tag:SetPoint("TOP", title, "BOTTOM", 0, -12)
     tag:SetJustifyH("CENTER")
 
     -- Divider line — well clear of the tagline's own text height, so it
     -- can never render as a strikethrough through it again.
-    T(panel, 80, 140, FW-160, 1, 0.16, 0.12, 0.05, 1)
+    Brand.DrawDivider(panel, 80, 140, FW-160)
 
     -- Feature bullet list
     local features = {
@@ -200,7 +94,7 @@ local function BuildSplashPanel(f)
     end
 
     -- Second divider
-    T(panel, 80, 278, FW-160, 1, 0.16, 0.12, 0.05, 1)
+    Brand.DrawDivider(panel, 80, 278, FW-160)
 
     -- Buttons (centred as a pair)
     local btnSetup = MakeButton(panel, "BEGIN SETUP",  140, 40, true)
@@ -212,7 +106,7 @@ local function BuildSplashPanel(f)
     -- Footer
     local foot = FS(panel,
         "v" .. XC.VERSION .. "  ·  by Xal  ·  A Xal's Creation",
-        "Fonts\\ARIALN.TTF", 11, "",
+        "Fonts\\ARIALN.TTF", Brand.DESC_FONT_SIZE, "",
         0.55, 0.47, 0.30)
     foot:SetPoint("BOTTOM", panel, "BOTTOM", 0, 20)
     foot:SetJustifyH("CENTER")
@@ -265,7 +159,7 @@ local function BuildSetupPanel(f)
     local hdrLine = panel:CreateTexture(nil, "ARTWORK")
     hdrLine:SetPoint("BOTTOMLEFT",  hdrBg, "BOTTOMLEFT",  0, 0)
     hdrLine:SetPoint("BOTTOMRIGHT", hdrBg, "BOTTOMRIGHT", 0, 0)
-    hdrLine:SetHeight(1)
+    hdrLine:SetHeight(Brand.LINE_THICKNESS)
     hdrLine:SetColorTexture(ACCENT[1]*0.5, ACCENT[2]*0.5, ACCENT[3]*0.5, 1)
 
     -- ← Back button (top-left of header)
@@ -275,17 +169,13 @@ local function BuildSetupPanel(f)
         XC.Splash:Open()
     end)
 
-    -- Title (centred in header) — MORPHEUS.TTF, same treatment as the
-    -- splash screen and every other panel in the addon now.
-    local title = FS(panel, "Crafter Setup",
-        "Fonts\\MORPHEUS.TTF", 20, "OUTLINE",
-        ACCENT[1], ACCENT[2], ACCENT[3])
-    title:SetPoint("CENTER", hdrBg, "CENTER", 0, 0)
-    title:SetJustifyH("CENTER")
+    -- Title (centred in header) — same branded Morpheus treatment
+    -- (with drop-shadow) as the splash screen and every other panel.
+    local title = Brand.Title(panel, "Crafter Setup", 20, "CENTER", hdrBg, "CENTER", 0, 0)
 
     -- Progress counter (top-right of header, updates on every save)
     local progressLbl = panel:CreateFontString(nil, "OVERLAY")
-    progressLbl:SetFont("Fonts\\ARIALN.TTF", 11, "")
+    progressLbl:SetFont("Fonts\\ARIALN.TTF", Brand.DESC_FONT_SIZE, "")
     progressLbl:SetPoint("RIGHT", hdrBg, "RIGHT", -8, 0)
     progressLbl:SetJustifyH("RIGHT")
 
@@ -334,7 +224,7 @@ local function BuildSetupPanel(f)
     -- Subtitle / hint strip
     local sub = FS(panel,
         "Quick setup: assign one crafter per profession.  For filters & guild crafters: /xcc options",
-        "Fonts\\ARIALN.TTF", 10, "",
+        "Fonts\\ARIALN.TTF", Brand.DESC_FONT_SIZE, "",
         GOLD[1]-0.18, GOLD[2]-0.18, GOLD[3]-0.16)
     sub:SetPoint("TOP", hdrBg, "BOTTOM", 0, -5)
     sub:SetJustifyH("CENTER")
@@ -363,13 +253,13 @@ local function BuildSetupPanel(f)
     -- Thin outline only - a single texture sized to the whole frame here
     -- would sit on top of the BACKGROUND layer and paint over it entirely.
     local ddBTop    = dropdown:CreateTexture(nil, "BORDER")
-    ddBTop:SetPoint("TOPLEFT"); ddBTop:SetPoint("TOPRIGHT"); ddBTop:SetHeight(1)
+    ddBTop:SetPoint("TOPLEFT"); ddBTop:SetPoint("TOPRIGHT"); ddBTop:SetHeight(Brand.LINE_THICKNESS)
     local ddBBottom = dropdown:CreateTexture(nil, "BORDER")
-    ddBBottom:SetPoint("BOTTOMLEFT"); ddBBottom:SetPoint("BOTTOMRIGHT"); ddBBottom:SetHeight(1)
+    ddBBottom:SetPoint("BOTTOMLEFT"); ddBBottom:SetPoint("BOTTOMRIGHT"); ddBBottom:SetHeight(Brand.LINE_THICKNESS)
     local ddBLeft   = dropdown:CreateTexture(nil, "BORDER")
-    ddBLeft:SetPoint("TOPLEFT"); ddBLeft:SetPoint("BOTTOMLEFT"); ddBLeft:SetWidth(1)
+    ddBLeft:SetPoint("TOPLEFT"); ddBLeft:SetPoint("BOTTOMLEFT"); ddBLeft:SetWidth(Brand.LINE_THICKNESS)
     local ddBRight  = dropdown:CreateTexture(nil, "BORDER")
-    ddBRight:SetPoint("TOPRIGHT"); ddBRight:SetPoint("BOTTOMRIGHT"); ddBRight:SetWidth(1)
+    ddBRight:SetPoint("TOPRIGHT"); ddBRight:SetPoint("BOTTOMRIGHT"); ddBRight:SetWidth(Brand.LINE_THICKNESS)
     for _, line in ipairs({ ddBTop, ddBBottom, ddBLeft, ddBRight }) do
         line:SetColorTexture(ACCENT[1]*0.5, ACCENT[2]*0.5, ACCENT[3]*0.5, 1)
     end
@@ -391,7 +281,7 @@ local function BuildSetupPanel(f)
 
         if #chars == 0 then
             local hint = dropdown:CreateFontString(nil, "OVERLAY")
-            hint:SetFont("Fonts\\ARIALN.TTF", 11, "")
+            hint:SetFont("Fonts\\ARIALN.TTF", Brand.DESC_FONT_SIZE, "")
             hint:SetTextColor(0.45, 0.45, 0.45, 1)
             hint:SetText("  (Log in on each alt to register them)")
             hint:SetPoint("TOPLEFT", dropdown, "TOPLEFT", 4, -6)
@@ -419,7 +309,7 @@ local function BuildSetupPanel(f)
                     rowBg:SetColorTexture(bgR, bgG, bgB, bgA)
                 end)
                 local rl = row:CreateFontString(nil, "OVERLAY")
-                rl:SetFont("Fonts\\ARIALN.TTF", 12, "")
+                rl:SetFont("Fonts\\ARIALN.TTF", Brand.BUTTON_LABEL_SIZE, "")
                 rl:SetPoint("LEFT", row, "LEFT", 6, 0)
                 if isMe then
                     rl:SetTextColor(0.30, 0.85, 0.35, 1)
@@ -461,7 +351,7 @@ local function BuildSetupPanel(f)
         local sep = row:CreateTexture(nil, "BACKGROUND")
         sep:SetPoint("BOTTOMLEFT",  row, "BOTTOMLEFT",  0, 0)
         sep:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
-        sep:SetHeight(1)
+        sep:SetHeight(Brand.LINE_THICKNESS)
         sep:SetColorTexture(0.16, 0.12, 0.05, 0.8)
 
         -- Configured indicator dot — anchored LEFT-CENTRE of the row
@@ -471,7 +361,7 @@ local function BuildSetupPanel(f)
 
         -- Profession label — vertically centred in row
         local lbl = row:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont("Fonts\\ARIALN.TTF", 13, "")
+        lbl:SetFont("Fonts\\ARIALN.TTF", Brand.BUTTON_LABEL_SIZE, "")
         lbl:SetTextColor(GOLD[1], GOLD[2]-0.04, GOLD[3]-0.07, 1)
         lbl:SetText(prof)
         lbl:SetPoint("LEFT",  row, "LEFT",  18, 0)
@@ -559,7 +449,7 @@ local function BuildSetupPanel(f)
     panel:SetScript("OnShow", function() Refresh() end)
 
     -- ── BOTTOM BAR ────────────────────────────────────────────
-    T(panel, 20, FH-52, FW-40, 1, 0.16, 0.12, 0.05, 1)
+    Brand.DrawDivider(panel, 20, FH-52, FW-40)
 
     -- Clear All (two-step confirm)
     local clearPending = false
@@ -640,14 +530,16 @@ function S:Create()
     f:SetScript("OnDragStop",  f.StopMovingOrSizing)
     f:SetClampedToScreen(true)
 
+    -- A standalone floating window we fully control - scales cleanly,
+    -- unlike Options' canvas which is embedded in Blizzard's own frame.
+    Brand.RegisterScalable(f)
+
     -- Fully opaque near-black background — no translucency for anything
     -- behind it to show through.
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.035, 0.035, 0.035, 1)
+    Brand.ApplyBackground(f)
 
-    -- Draw the border, tick marks, and corner ornaments
-    DrawBorderAndCorners(f)
+    -- Draw the border
+    Brand.DrawBorder(f)
 
     -- Build both content panels (only one visible at a time)
     self.splashPanel = BuildSplashPanel(f)

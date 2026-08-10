@@ -1,6 +1,7 @@
 -- ============================================================
 -- Options.lua  —  Xal's Craft Courier
--- Blizzard Interface → AddOns settings panel.
+-- Standalone floating crafter-config window (not the Blizzard
+-- Interface/AddOns settings frame — see O:Register()/O:Open()).
 --
 -- Layout: top-level mode tabs — Alts, then one tab per guild your alts
 -- belong to, each fully separate, never an automatic fallback between
@@ -13,12 +14,29 @@
 XC = XC or {}
 XC.Options = XC.Options or {}
 local O = XC.Options
+local Brand = XC.BrandStyle
 
 -- ─── Theme ────────────────────────────────────────────────────
-local C_ACCENT   = { 0.72, 0.55, 0.22 }
-local C_GREEN = { 0.10, 0.62, 0.18 }   -- WoW nameplate guild green
-local C_GOLD  = { 0.60, 0.47, 0.30 }
-local C_STEEL = { 0.14, 0.14, 0.14 }
+-- ACCENT/GOLD aliased to the shared brand module (same values, one
+-- shared source of truth). GREEN is Options-specific (guild color-coding,
+-- used throughout this addon), not part of the brand spec.
+local C_ACCENT = Brand.ACCENT
+local C_GREEN  = { 0.10, 0.62, 0.18 }   -- WoW nameplate guild green
+local C_GOLD   = Brand.GOLD
+
+-- Confirmed settings-panel typography standard (2026-08-09), aliased from
+-- the shared module so there's one source of truth. Dim/description text
+-- uses the 13px floor, brighter label/checkbox text uses the 14px floor.
+local PANEL_DESC_FONT_SIZE  = Brand.DESC_FONT_SIZE
+local PANEL_LABEL_FONT_SIZE = Brand.BUTTON_LABEL_SIZE
+
+-- Reads a FontString's current font and reapplies it at the given size -
+-- needed because some fonts here come from an inherited template
+-- (GameFontNormal etc.), not a direct SetFont call.
+local function BumpFont(fs, size)
+    local font, _, flags = fs:GetFont()
+    if font then fs:SetFont(font, size, flags) end
+end
 
 -- ─── Tab layout ───────────────────────────────────────────────
 local TAB_ROWS = {
@@ -27,8 +45,22 @@ local TAB_ROWS = {
 }
 local ROW_H    = 26
 local SLOT_PAD = 8
-local HEADER_H = 36   -- global settings header above tabs
-local CANVAS_W, CANVAS_H = 860, 640
+-- Where the body (mode tabs + 3 columns) starts below the header - matches
+-- Routes' standalone settings window's sidebar TOPLEFT y (-78) exactly,
+-- since this header (title + close/Settings row + divider) is built the
+-- same way.
+local BODY_TOP = 78
+-- Grid (Your Crafters) content is now sized to what a crafter slot
+-- actually needs (checkbox + name box + dropdown + Remove button + real
+-- padding, ~333px) instead of stretching to fill whatever's left of the
+-- canvas - that leftover-space stretch was the "big old gap" past the
+-- Remove button the crafter slot's own border was drawn around.
+local GRID_CONTENT_W = 360
+-- CANVAS_W = 2*SAFE_MARGIN(28) + PROF_COL_W(190) + NAME_COL_W(230) +
+-- grid wrap width (GRID_CONTENT_W 360 + scrollframe insets 6+26=32 = 392)
+-- = 840. Not independently chosen - derived from the actual column
+-- widths below so the panel is only as wide as its content needs.
+local CANVAS_W, CANVAS_H = 840, 700
 local CONTENT_W = CANVAS_W - 6 - 26   -- matches the scroll frame's own horizontal insets
 
 -- ─── State ────────────────────────────────────────────────────
@@ -84,43 +116,24 @@ local function Lbl(parent, text, size, r, g, b, flags)
     return fs
 end
 
-local function MakeBtn(parent, text, w, h, primary, colorOverride)
-    local base  = primary and 0.17 or 0.11
-    local col   = colorOverride or (primary and C_ACCENT or { 0.55, 0.42, 0.20 })
-    local btn   = CreateFrame("Button", nil, parent)
-    btn:SetSize(w, h)
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(); bg:SetColorTexture(base, base, base, 1)
-    local eTop = btn:CreateTexture(nil, "OVERLAY")
-    eTop:SetPoint("TOPLEFT"); eTop:SetPoint("TOPRIGHT")
-    eTop:SetHeight(1); eTop:SetColorTexture(0.30, 0.30, 0.30, 1)
-    local eBot = btn:CreateTexture(nil, "OVERLAY")
-    eBot:SetPoint("BOTTOMLEFT"); eBot:SetPoint("BOTTOMRIGHT")
-    eBot:SetHeight(1); eBot:SetColorTexture(0.06, 0.06, 0.06, 1)
-    local lbl = btn:CreateFontString(nil, "OVERLAY")
-    lbl:SetFont("Fonts\\ARIALN.TTF", 11, "OUTLINE")
-    lbl:SetPoint("CENTER"); lbl:SetText(text)
-    lbl:SetTextColor(col[1], col[2], col[3], 1)
-    btn.lbl = lbl
-    btn:SetScript("OnEnter", function() bg:SetColorTexture(base+0.05,base+0.05,base+0.05,1) end)
-    btn:SetScript("OnLeave", function() bg:SetColorTexture(base,base,base,1) end)
-    btn:SetScript("OnMouseDown", function()
-        bg:SetColorTexture(base-0.04,base-0.04,base-0.04,1)
-        lbl:SetPoint("CENTER",btn,"CENTER",1,-1)
-    end)
-    btn:SetScript("OnMouseUp", function()
-        bg:SetColorTexture(base,base,base,1)
-        lbl:SetPoint("CENTER",btn,"CENTER",0,0)
-    end)
+-- Shared flat button style (Brand.MakeButton), replacing the old
+-- hand-drawn beveled version. `primary` maps to SetSelected(true) - a
+-- brighter fill + white label for the emphasized action, same visual
+-- role primary=true used to carry.
+local function MakeBtn(parent, text, w, h, primary)
+    local btn = Brand.MakeButton(parent, text, w, h, nil)
+    if primary then btn:SetSelected(true) end
+    btn.lbl = btn.label
     return btn
 end
 
 local function MakeCB(parent, label, checked, onChange)
     local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     cb:SetSize(20, 20)
-    cb.text:SetFont("Fonts\\ARIALN.TTF", 11, "")
+    cb.text:SetFont("Fonts\\ARIALN.TTF", PANEL_LABEL_FONT_SIZE, "")
     cb.text:SetTextColor(C_GOLD[1], C_GOLD[2], C_GOLD[3], 1)
     cb.text:SetText(label or "")
+    cb.text:SetWordWrap(true)
     cb:SetChecked(checked)
     if onChange then
         cb:SetScript("OnClick", function(self) onChange(self:GetChecked()) end)
@@ -187,13 +200,13 @@ local function BuildBaseDropdown(frameName, accentColor)
     -- Thin outline only - a single texture sized to the whole frame here
     -- would sit on top of the BACKGROUND layer and paint over it entirely.
     local bTop    = dd:CreateTexture(nil, "BORDER")
-    bTop:SetPoint("TOPLEFT"); bTop:SetPoint("TOPRIGHT"); bTop:SetHeight(1)
+    bTop:SetPoint("TOPLEFT"); bTop:SetPoint("TOPRIGHT"); bTop:SetHeight(Brand.LINE_THICKNESS)
     local bBottom = dd:CreateTexture(nil, "BORDER")
-    bBottom:SetPoint("BOTTOMLEFT"); bBottom:SetPoint("BOTTOMRIGHT"); bBottom:SetHeight(1)
+    bBottom:SetPoint("BOTTOMLEFT"); bBottom:SetPoint("BOTTOMRIGHT"); bBottom:SetHeight(Brand.LINE_THICKNESS)
     local bLeft   = dd:CreateTexture(nil, "BORDER")
-    bLeft:SetPoint("TOPLEFT"); bLeft:SetPoint("BOTTOMLEFT"); bLeft:SetWidth(1)
+    bLeft:SetPoint("TOPLEFT"); bLeft:SetPoint("BOTTOMLEFT"); bLeft:SetWidth(Brand.LINE_THICKNESS)
     local bRight  = dd:CreateTexture(nil, "BORDER")
-    bRight:SetPoint("TOPRIGHT"); bRight:SetPoint("BOTTOMRIGHT"); bRight:SetWidth(1)
+    bRight:SetPoint("TOPRIGHT"); bRight:SetPoint("BOTTOMRIGHT"); bRight:SetWidth(Brand.LINE_THICKNESS)
     for _, line in ipairs({ bTop, bBottom, bLeft, bRight }) do
         line:SetColorTexture(accentColor[1]*0.5, accentColor[2]*0.5, accentColor[3]*0.5, 1)
     end
@@ -211,7 +224,7 @@ local function PopulateDropdown(dd, entries, targetBox, cfg, noEntriesMsg)
     dd.rows = {}
     local RH = 22
     if #entries == 0 then
-        local h = Lbl(dd, "  " .. (noEntriesMsg or "(none)"), 11, 0.45, 0.45, 0.45)
+        local h = Lbl(dd, "  " .. (noEntriesMsg or "(none)"), PANEL_DESC_FONT_SIZE, 0.45, 0.45, 0.45)
         h:SetPoint("TOPLEFT", dd, "TOPLEFT", 4, -6)
         dd:SetHeight(28); table.insert(dd.rows, h)
     else
@@ -224,7 +237,7 @@ local function PopulateDropdown(dd, entries, targetBox, cfg, noEntriesMsg)
             hl:SetAllPoints(); hl:SetColorTexture(0.18,0.18,0.18,0)
             row:SetScript("OnEnter", function() hl:SetAlpha(1) end)
             row:SetScript("OnLeave", function() hl:SetAlpha(0) end)
-            local rl = Lbl(row, entry.display, 12, 0.85, 0.75, 0.55)
+            local rl = Lbl(row, entry.display, PANEL_LABEL_FONT_SIZE, 0.85, 0.75, 0.55)
             rl:SetPoint("LEFT", row, "LEFT", 10, 0)
             row:SetScript("OnClick", function()
                 local fullName = entry.fullName
@@ -273,7 +286,7 @@ local function ShowGuildDropdown(anchorBtn, targetBox, cfg)
         if dd:IsShown() and dd.activeBox == targetBox then dd:Hide(); return end
         dd.activeBox = targetBox
         for _, r in ipairs(dd.rows) do r:Hide() end; dd.rows = {}
-        local msg = Lbl(dd, "  You are not in a guild.", 11, 0.45, 0.55, 0.45)
+        local msg = Lbl(dd, "  You are not in a guild.", PANEL_DESC_FONT_SIZE, 0.45, 0.55, 0.45)
         msg:SetPoint("TOPLEFT", dd, "TOPLEFT", 4, -6)
         dd:SetHeight(28); table.insert(dd.rows, msg)
         dd:ClearAllPoints()
@@ -338,13 +351,13 @@ local function ToggleExpansionPopup(anchorBtn, cfg, prof, accent)
         -- sized to the whole frame here, which painted over the entire
         -- background instead of just tracing the edge.
         local bTop    = dd:CreateTexture(nil, "BORDER")
-        bTop:SetPoint("TOPLEFT"); bTop:SetPoint("TOPRIGHT"); bTop:SetHeight(1)
+        bTop:SetPoint("TOPLEFT"); bTop:SetPoint("TOPRIGHT"); bTop:SetHeight(Brand.LINE_THICKNESS)
         local bBottom = dd:CreateTexture(nil, "BORDER")
-        bBottom:SetPoint("BOTTOMLEFT"); bBottom:SetPoint("BOTTOMRIGHT"); bBottom:SetHeight(1)
+        bBottom:SetPoint("BOTTOMLEFT"); bBottom:SetPoint("BOTTOMRIGHT"); bBottom:SetHeight(Brand.LINE_THICKNESS)
         local bLeft   = dd:CreateTexture(nil, "BORDER")
-        bLeft:SetPoint("TOPLEFT"); bLeft:SetPoint("BOTTOMLEFT"); bLeft:SetWidth(1)
+        bLeft:SetPoint("TOPLEFT"); bLeft:SetPoint("BOTTOMLEFT"); bLeft:SetWidth(Brand.LINE_THICKNESS)
         local bRight  = dd:CreateTexture(nil, "BORDER")
-        bRight:SetPoint("TOPRIGHT"); bRight:SetPoint("BOTTOMRIGHT"); bRight:SetWidth(1)
+        bRight:SetPoint("TOPRIGHT"); bRight:SetPoint("BOTTOMRIGHT"); bRight:SetWidth(Brand.LINE_THICKNESS)
         for _, line in ipairs({ bTop, bBottom, bLeft, bRight }) do
             line:SetColorTexture(0.4, 0.32, 0.16, 1)
         end
@@ -365,11 +378,11 @@ local function ToggleExpansionPopup(anchorBtn, cfg, prof, accent)
     local PAD = 10
     local headerFrame = CreateFrame("Frame", nil, dd)
     headerFrame:SetPoint("TOPLEFT", dd, "TOPLEFT", PAD, -8)
-    local hdrLbl = Lbl(headerFrame, "Expansion", 10, 0.50, 0.30, 0.15)
+    local hdrLbl = Lbl(headerFrame, "Expansion", PANEL_DESC_FONT_SIZE, 0.50, 0.30, 0.15)
     hdrLbl:SetPoint("LEFT", headerFrame, "LEFT", 24, 0); hdrLbl:SetWidth(70)
     local hdrX = 100
     for _, itype in ipairs(itemTypes) do
-        local h = Lbl(headerFrame, itype.label, 10, accent[1]*0.7, accent[2]*0.7, accent[3]*0.7)
+        local h = Lbl(headerFrame, itype.label, PANEL_DESC_FONT_SIZE, accent[1]*0.7, accent[2]*0.7, accent[3]*0.7)
         h:SetPoint("LEFT", headerFrame, "LEFT", hdrX + 2, 0)
         hdrX = hdrX + 20 + math.floor(#itype.label * 6.5) + 8
     end
@@ -386,7 +399,7 @@ local function ToggleExpansionPopup(anchorBtn, cfg, prof, accent)
         rowFrame:SetSize(hdrX, ROW_H)
         rowFrame:SetPoint("TOPLEFT", dd, "TOPLEFT", PAD, -(8 + 20 + (ei-1)*ROW_H))
 
-        local expLbl = Lbl(rowFrame, exp.short, 11, 0.72, 0.42, 0.18)
+        local expLbl = Lbl(rowFrame, exp.short, PANEL_LABEL_FONT_SIZE, 0.72, 0.42, 0.18)
         expLbl:SetPoint("LEFT", rowFrame, "LEFT", 22, 0); expLbl:SetWidth(68)
 
         local sep = rowFrame:CreateTexture(nil, "ARTWORK")
@@ -481,13 +494,13 @@ local function BuildCrafterSlot(parent, prof, idx, cfg, onDelete, isGuild)
     -- Border-outline only, no filled background — same clean-line
     -- treatment as the splash screen and every other panel in the addon.
     local top    = slot:CreateTexture(nil, "ARTWORK")
-    top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(1)
+    top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(Brand.LINE_THICKNESS)
     local bottom = slot:CreateTexture(nil, "ARTWORK")
-    bottom:SetPoint("BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT"); bottom:SetHeight(1)
+    bottom:SetPoint("BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT"); bottom:SetHeight(Brand.LINE_THICKNESS)
     local left   = slot:CreateTexture(nil, "ARTWORK")
-    left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT"); left:SetWidth(1)
+    left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT"); left:SetWidth(Brand.LINE_THICKNESS)
     local right  = slot:CreateTexture(nil, "ARTWORK")
-    right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT"); right:SetWidth(1)
+    right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT"); right:SetWidth(Brand.LINE_THICKNESS)
     for _, line in ipairs({ top, bottom, left, right }) do
         line:SetColorTexture(accent[1]*0.5, accent[2]*0.5, accent[3]*0.5, 1)
     end
@@ -534,21 +547,14 @@ local function BuildCrafterSlot(parent, prof, idx, cfg, onDelete, isGuild)
     -- above, same pattern as the alt/guild dropdowns) instead of
     -- expanding inline, which was clipping the item-type columns against
     -- the crafter row's own width.
-    local expandBtn = CreateFrame("Button", nil, slot)
-    expandBtn:SetPoint("TOPLEFT", slot, "TOPLEFT", SLOT_PAD, -curY)
-    expandBtn:SetSize(220, 22)
-    local expandLbl = expandBtn:CreateFontString(nil, "OVERLAY")
-    expandLbl:SetFont("Fonts\\ARIALN.TTF", 11, "OUTLINE")
-    expandLbl:SetPoint("LEFT")
-    expandLbl:SetText("+   Expansion & Item Filters")
-    expandLbl:SetTextColor(accent[1]*0.9, accent[2]*0.9, accent[3]*0.9, 1)
-    local expandLine = expandBtn:CreateTexture(nil, "ARTWORK")
-    expandLine:SetPoint("BOTTOMLEFT"); expandLine:SetPoint("BOTTOMRIGHT")
-    expandLine:SetHeight(1)
-    expandLine:SetColorTexture(accent[1]*0.4, accent[2]*0.4, accent[3]*0.4, 1)
-    expandBtn:SetScript("OnClick", function()
+    local expandBtn
+    expandBtn = Brand.MakeButton(slot, "+ Expansion & Item Filters", 220, 22, function()
         ToggleExpansionPopup(expandBtn, cfg, prof, accent)
     end)
+    expandBtn:SetPoint("TOPLEFT", slot, "TOPLEFT", SLOT_PAD, -curY)
+    if isGuild then
+        expandBtn:SetBorderColor(accent[1], accent[2], accent[3], 1)
+    end
     curY = curY + 26
 
     slot.GetContentHeight = function() return curY + 6 end
@@ -571,8 +577,10 @@ end
 -- shows up under a different guild's tab.
 -- ══════════════════════════════════════════════════════════════
 local MODE_TAB_H = 30
-local PROF_COL_W = 150
-local PROF_ROW_H = 26
+-- Wide enough that "Leatherworking" (the longest profession name) doesn't
+-- crowd the button's edge or the "configured" green dot.
+local PROF_COL_W = 190
+local PROF_ROW_H = 30
 
 O.activeMode      = "personal"   -- "personal" or "guild"
 O.activeGuildName = nil          -- which known-guild tab is active, when in guild mode
@@ -580,56 +588,45 @@ O.selectedAltName = nil          -- currently-picked name from the name list
 
 local function BuildModeTabs(canvas)
     local wrap = CreateFrame("Frame", nil, canvas)
-    wrap:SetPoint("TOPLEFT",  canvas, "TOPLEFT",  0, -HEADER_H)
-    wrap:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", 0, -HEADER_H)
+    wrap:SetPoint("TOPLEFT",  canvas, "TOPLEFT",  Brand.SAFE_MARGIN,  -BODY_TOP)
+    wrap:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", -Brand.SAFE_MARGIN, -BODY_TOP)
     wrap:SetHeight(MODE_TAB_H)
 
     local wbg = wrap:CreateTexture(nil, "BACKGROUND")
     wbg:SetAllPoints(); wbg:SetColorTexture(0.05, 0.04, 0.02, 1)
 
     local function MakeModeTab(text, color)
-        local btn = CreateFrame("Button", nil, wrap)
-        btn:SetHeight(MODE_TAB_H)
-
-        -- Selection shown as a border outline, not a filled highlight —
-        -- same clean-line treatment as everywhere else in the addon now.
-        local top    = btn:CreateTexture(nil, "ARTWORK")
-        top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(2)
-        local bottom = btn:CreateTexture(nil, "ARTWORK")
-        bottom:SetPoint("BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT"); bottom:SetHeight(2)
-        local left   = btn:CreateTexture(nil, "ARTWORK")
-        left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT"); left:SetWidth(2)
-        local right  = btn:CreateTexture(nil, "ARTWORK")
-        right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT"); right:SetWidth(2)
-        for _, line in ipairs({ top, bottom, left, right }) do
-            line:SetColorTexture(color[1], color[2], color[3], 1)
-        end
-        btn.borderLines = { top, bottom, left, right }
-
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont("Fonts\\FRIZQT__.TTF", 13, "OUTLINE")
-        lbl:SetPoint("CENTER"); lbl:SetText(text)
-        -- Size the tab to its actual measured text width, not a guessed
-        -- character count — a guessed width is exactly what was letting
-        -- text spill past button edges elsewhere in this panel.
-        btn:SetWidth(math.max(90, lbl:GetStringWidth() + 28))
-        btn.lbl   = lbl
+        -- Placeholder width - resized right below to the label's actual
+        -- measured text width, not a guessed character count (a guessed
+        -- width is exactly what was letting text spill past button edges
+        -- elsewhere in this panel).
+        local btn = Brand.MakeButton(wrap, text, 90, MODE_TAB_H, nil)
+        btn:SetWidth(math.max(90, btn.label:GetStringWidth() + 28))
+        btn.lbl   = btn.label
         btn.color = color
         return btn
     end
 
     local tabs = {}
 
+    -- Guild tabs keep their own green border color instead of the shared
+    -- accent gold, so Personal vs. Guild stays visually distinct - the
+    -- same color-coding convention used for this everywhere else in the
+    -- addon (Options' crafters grid, Mailbox's send preview tabs, etc.).
+    -- Brand.MakeButton's SetBorderColor is the exposed hook for exactly
+    -- this kind of one-off override.
     local function Restyle()
         for _, t in ipairs(tabs) do
             local active = (t.mode == "personal" and O.activeMode == "personal")
                 or (t.mode == "guild" and O.activeMode == "guild" and t.guildName == O.activeGuildName)
-            local c = t.color
-            for _, line in ipairs(t.borderLines) do line:SetShown(active) end
-            t.lbl:SetTextColor(
-                active and 1 or c[1]*0.8,
-                active and 1 or c[2]*0.8,
-                active and 1 or c[3]*0.8, 1)
+            t:SetSelected(active)
+            if not active then
+                local c = t.color
+                t:SetBorderColor(c[1]*0.8, c[2]*0.8, c[3]*0.8, 1)
+                t.lbl:SetTextColor(c[1]*0.8, c[2]*0.8, c[3]*0.8, 1)
+            elseif t.mode == "guild" then
+                t:SetBorderColor(t.color[1], t.color[2], t.color[3], 1)
+            end
         end
     end
 
@@ -648,10 +645,14 @@ local function BuildModeTabs(canvas)
             table.insert(tabs, gTab)
         end
 
-        local x = 0
+        -- Real gap between tabs instead of touching edge-to-edge, and a
+        -- bigger left inset than SAFE_MARGIN alone gave.
+        local TAB_GAP = 6
+        local TAB_ROW_LEFT_PAD = 10
+        local x = TAB_ROW_LEFT_PAD
         for _, t in ipairs(tabs) do
             t:SetPoint("TOPLEFT", wrap, "TOPLEFT", x, 0)
-            x = x + t:GetWidth()
+            x = x + t:GetWidth() + TAB_GAP
             t:SetScript("OnClick", function()
                 O.activeMode      = t.mode
                 O.activeGuildName = t.guildName
@@ -678,8 +679,8 @@ local function BuildProfessionList(canvas, bodyTop)
     end
 
     local list = CreateFrame("Frame", nil, canvas)
-    list:SetPoint("TOPLEFT",    canvas, "TOPLEFT",    0, -bodyTop)
-    list:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", 0,  0)
+    list:SetPoint("TOPLEFT",    canvas, "TOPLEFT",    Brand.SAFE_MARGIN, -bodyTop)
+    list:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", Brand.SAFE_MARGIN,  Brand.SAFE_MARGIN)
     list:SetWidth(PROF_COL_W)
 
     local bg = list:CreateTexture(nil, "BACKGROUND")
@@ -689,41 +690,39 @@ local function BuildProfessionList(canvas, bodyTop)
     -- (not as one texture on canvas) since this column is its own child
     -- frame sitting on top of canvas's own artwork at that seam.
     local topline = list:CreateTexture(nil, "ARTWORK")
-    topline:SetPoint("TOPLEFT"); topline:SetPoint("TOPRIGHT"); topline:SetHeight(1)
+    topline:SetPoint("TOPLEFT"); topline:SetPoint("TOPRIGHT"); topline:SetHeight(Brand.LINE_THICKNESS)
     topline:SetColorTexture(C_ACCENT[1]*0.5, C_ACCENT[2]*0.5, C_ACCENT[3]*0.5, 1)
 
     local sepline = list:CreateTexture(nil, "ARTWORK")
     sepline:SetPoint("TOPRIGHT"); sepline:SetPoint("BOTTOMRIGHT")
-    sepline:SetWidth(1)
+    sepline:SetWidth(Brand.LINE_THICKNESS)
     sepline:SetColorTexture(C_ACCENT[1]*0.4, C_ACCENT[2]*0.4, C_ACCENT[3]*0.4, 1)
 
+    -- Equal padding on both sides (confirmed standard: sidebar tabs never
+    -- sit flush against one edge with slack only on the other) - buttons
+    -- are inset TAB_PAD from the column's left AND stop TAB_PAD short of
+    -- the sepline divider on the right.
+    -- TOP_PAD: the first button was anchored at y=0, the exact same spot
+    -- the topline divider sits at - they were touching directly, not just
+    -- close. Real vertical clearance below the divider now, same as every
+    -- other column's top element (nameList's "Known Alts:" hint, grid's
+    -- title) already has.
+    local TAB_PAD = 12
+    local TOP_PAD = 10
+    -- Real vertical gap between rows - they were stacked with zero space,
+    -- each button's bottom edge touching the next one's top edge directly.
+    local ROW_GAP = 8
     local buttons = {}
     for i, prof in ipairs(ALL_PROFS) do
-        local btn = CreateFrame("Button", nil, list)
-        btn:SetSize(PROF_COL_W, PROF_ROW_H)
-        btn:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -(i-1)*PROF_ROW_H)
-
-        -- Selection shown as a border outline, not a filled highlight —
-        -- same clean-line treatment as the splash screen, hidden until active.
-        local top    = btn:CreateTexture(nil, "ARTWORK")
-        top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(1)
-        local bottom = btn:CreateTexture(nil, "ARTWORK")
-        bottom:SetPoint("BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT"); bottom:SetHeight(1)
-        local left   = btn:CreateTexture(nil, "ARTWORK")
-        left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT"); left:SetWidth(1)
-        local right  = btn:CreateTexture(nil, "ARTWORK")
-        right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT"); right:SetWidth(1)
-        for _, line in ipairs({ top, bottom, left, right } ) do
-            line:SetColorTexture(C_ACCENT[1], C_ACCENT[2], C_ACCENT[3], 1)
-            line:Hide()
-        end
-        btn.borderLines = { top, bottom, left, right }
-
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont("Fonts\\ARIALN.TTF", 12, "")
-        lbl:SetPoint("LEFT", btn, "LEFT", 10, 0)
-        lbl:SetText(prof)
-        btn.lbl  = lbl
+        -- The sepline itself is Brand.LINE_THICKNESS wide, sitting flush
+        -- against the column's true right edge - without subtracting it
+        -- here, the button's right edge landed 2px closer to the sepline
+        -- than the left edge sits from the column's own edge (12px left
+        -- vs. 10px right to the line), reading as lopsided.
+        local btn = Brand.MakeButton(list, prof, PROF_COL_W - 2*TAB_PAD - Brand.LINE_THICKNESS, PROF_ROW_H, function() O.SelectProf(prof) end)
+        btn:SetPoint("TOPLEFT", list, "TOPLEFT", TAB_PAD, -TOP_PAD - (i-1)*(PROF_ROW_H + ROW_GAP))
+        btn.label:ClearAllPoints()
+        btn.label:SetPoint("LEFT", btn, "LEFT", 10, 0)
         btn.prof = prof
 
         -- "Configured" mark — a plain dot, not a Unicode checkmark glyph
@@ -738,18 +737,12 @@ local function BuildProfessionList(canvas, bodyTop)
         mark:Hide()
         btn.mark = mark
 
-        btn:SetScript("OnClick", function() O.SelectProf(prof) end)
         buttons[prof] = btn
     end
 
     function list:Restyle()
         for prof, btn in pairs(buttons) do
-            local active = (O.activeProf == prof)
-            for _, line in ipairs(btn.borderLines) do line:SetShown(active) end
-            btn.lbl:SetTextColor(
-                active and 1 or C_GOLD[1],
-                active and 1 or C_GOLD[2],
-                active and 1 or C_GOLD[3], 1)
+            btn:SetSelected(O.activeProf == prof)
         end
     end
 
@@ -780,13 +773,15 @@ end
 -- Click a name to select it, then "+ Add Selected" puts it on the
 -- currently-selected profession in the currently-active mode.
 -- ══════════════════════════════════════════════════════════════
-local NAME_COL_W = 170
+-- Known Alts made wider, Your Crafters (GRID_W, derived from what's left)
+-- correspondingly narrower.
+local NAME_COL_W = 230
 local NAME_ROW_H = 22
 
 local function BuildNameList(canvas, bodyTop)
     local col = CreateFrame("Frame", nil, canvas)
-    col:SetPoint("TOPLEFT",    canvas, "TOPLEFT",    PROF_COL_W, -bodyTop)
-    col:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", PROF_COL_W,  0)
+    col:SetPoint("TOPLEFT",    canvas, "TOPLEFT",    PROF_COL_W + Brand.SAFE_MARGIN, -bodyTop)
+    col:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", PROF_COL_W + Brand.SAFE_MARGIN,  Brand.SAFE_MARGIN)
     col:SetWidth(NAME_COL_W)
 
     local bg = col:CreateTexture(nil, "BACKGROUND")
@@ -795,12 +790,12 @@ local function BuildNameList(canvas, bodyTop)
     -- Top-edge line — part of the divider under the tab row (see the
     -- note in BuildProfessionList for why it's drawn per-column).
     local topline = col:CreateTexture(nil, "ARTWORK")
-    topline:SetPoint("TOPLEFT"); topline:SetPoint("TOPRIGHT"); topline:SetHeight(1)
+    topline:SetPoint("TOPLEFT"); topline:SetPoint("TOPRIGHT"); topline:SetHeight(Brand.LINE_THICKNESS)
     topline:SetColorTexture(C_ACCENT[1]*0.5, C_ACCENT[2]*0.5, C_ACCENT[3]*0.5, 1)
 
     local sepline = col:CreateTexture(nil, "ARTWORK")
     sepline:SetPoint("TOPRIGHT"); sepline:SetPoint("BOTTOMRIGHT")
-    sepline:SetWidth(1)
+    sepline:SetWidth(Brand.LINE_THICKNESS)
     sepline:SetColorTexture(C_ACCENT[1]*0.4, C_ACCENT[2]*0.4, C_ACCENT[3]*0.4, 1)
 
     -- Built directly (not via the shared Lbl() helper, which is hardcoded
@@ -809,7 +804,7 @@ local function BuildNameList(canvas, bodyTop)
     local hint = col:CreateFontString(nil, "OVERLAY")
     hint:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
     hint:SetTextColor(C_ACCENT[1], C_ACCENT[2], C_ACCENT[3], 1)
-    hint:SetPoint("TOPLEFT", col, "TOPLEFT", 6, -4)
+    hint:SetPoint("TOPLEFT", col, "TOPLEFT", 6, -10)
     hint:SetWidth(NAME_COL_W - 12)
     hint:SetJustifyH("LEFT")
     col.hint = hint
@@ -826,9 +821,12 @@ local function BuildNameList(canvas, bodyTop)
         O.RefreshGrid()
     end)
 
+    -- -20 wasn't enough clearance between the scrollbar itself and the
+    -- sepline divider at col's right edge - the scrollbar was rendering
+    -- right on top of it. -32 gives it real room.
     local sf = CreateFrame("ScrollFrame", nil, col, "UIPanelScrollFrameTemplate")
     sf:SetPoint("TOPLEFT",     addBtn, "BOTTOMLEFT", 0, -8)
-    sf:SetPoint("BOTTOMRIGHT", col,    "BOTTOMRIGHT", -20, 6)
+    sf:SetPoint("BOTTOMRIGHT", col,    "BOTTOMRIGHT", -32, 6)
     local content = CreateFrame("Frame", nil, sf)
     content:SetWidth(NAME_COL_W - 32)
     sf:SetScrollChild(content)
@@ -879,19 +877,19 @@ local function BuildNameList(canvas, bodyTop)
             -- same clean-line treatment as the splash screen.
             if selected then
                 local top    = btn:CreateTexture(nil, "ARTWORK")
-                top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(1)
+                top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT"); top:SetHeight(Brand.LINE_THICKNESS)
                 local bottom = btn:CreateTexture(nil, "ARTWORK")
-                bottom:SetPoint("BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT"); bottom:SetHeight(1)
+                bottom:SetPoint("BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT"); bottom:SetHeight(Brand.LINE_THICKNESS)
                 local left   = btn:CreateTexture(nil, "ARTWORK")
-                left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT"); left:SetWidth(1)
+                left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT"); left:SetWidth(Brand.LINE_THICKNESS)
                 local right  = btn:CreateTexture(nil, "ARTWORK")
-                right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT"); right:SetWidth(1)
+                right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT"); right:SetWidth(Brand.LINE_THICKNESS)
                 for _, line in ipairs({ top, bottom, left, right }) do
                     line:SetColorTexture(C_ACCENT[1], C_ACCENT[2], C_ACCENT[3], 1)
                 end
             end
             local lbl = btn:CreateFontString(nil, "OVERLAY")
-            lbl:SetFont("Fonts\\ARIALN.TTF", 11, "")
+            lbl:SetFont("Fonts\\ARIALN.TTF", PANEL_LABEL_FONT_SIZE, "")
             lbl:SetPoint("LEFT", btn, "LEFT", 4, 0)
             lbl:SetText(fullName)
             lbl:SetTextColor(
@@ -910,7 +908,7 @@ local function BuildNameList(canvas, bodyTop)
             local emptyText = (O.activeMode == "guild")
                 and "(not in a guild, or the roster hasn't loaded yet)"
                 or  "(log in on an alt with the addon running to register it)"
-            local empty = Lbl(content, emptyText, 10, 0.45, 0.45, 0.45)
+            local empty = Lbl(content, emptyText, PANEL_DESC_FONT_SIZE, 0.45, 0.45, 0.45)
             empty:SetPoint("TOPLEFT", content, "TOPLEFT", 4, -y)
             empty:SetWidth(NAME_COL_W - 40)
             empty:SetJustifyH("LEFT")
@@ -933,25 +931,28 @@ end
 -- ══════════════════════════════════════════════════════════════
 local function BuildCraftersGrid(canvas, bodyTop)
     local wrap = CreateFrame("Frame", nil, canvas)
-    wrap:SetPoint("TOPLEFT",     canvas, "TOPLEFT",     PROF_COL_W + NAME_COL_W, -bodyTop)
-    wrap:SetPoint("BOTTOMRIGHT", canvas, "BOTTOMRIGHT", 0,                        0)
+    wrap:SetPoint("TOPLEFT",     canvas, "TOPLEFT",     PROF_COL_W + NAME_COL_W + Brand.SAFE_MARGIN, -bodyTop)
+    wrap:SetPoint("BOTTOMRIGHT", canvas, "BOTTOMRIGHT", -Brand.SAFE_MARGIN,                            Brand.SAFE_MARGIN)
 
     -- Top-edge line — part of the divider under the tab row (see the
     -- note in BuildProfessionList for why it's drawn per-column).
     local topline = wrap:CreateTexture(nil, "ARTWORK")
-    topline:SetPoint("TOPLEFT"); topline:SetPoint("TOPRIGHT"); topline:SetHeight(1)
+    topline:SetPoint("TOPLEFT"); topline:SetPoint("TOPRIGHT"); topline:SetHeight(Brand.LINE_THICKNESS)
     topline:SetColorTexture(C_ACCENT[1]*0.5, C_ACCENT[2]*0.5, C_ACCENT[3]*0.5, 1)
 
     local title = wrap:CreateFontString(nil, "OVERLAY")
     title:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
-    title:SetPoint("TOPLEFT", wrap, "TOPLEFT", 10, -6)
+    title:SetPoint("TOPLEFT", wrap, "TOPLEFT", 10, -10)
     wrap.title = title
 
     local sf = CreateFrame("ScrollFrame", nil, wrap, "UIPanelScrollFrameTemplate")
     sf:SetPoint("TOPLEFT",     wrap, "TOPLEFT",     6,  -30)
     sf:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -26,  6)
 
-    local GRID_W = CANVAS_W - PROF_COL_W - NAME_COL_W - 6 - 26
+    -- Fixed to what the content actually needs (GRID_CONTENT_W), not
+    -- derived from whatever's left of the canvas - CANVAS_W itself is now
+    -- computed FROM this constant instead of the other way around.
+    local GRID_W = GRID_CONTENT_W
     local content = CreateFrame("Frame", nil, sf)
     content:SetWidth(GRID_W)   -- fixed, deterministic — same GetWidth()-timing
     sf:SetScrollChild(content) -- hazard as before, avoided the same way
@@ -980,7 +981,7 @@ local function BuildCraftersGrid(canvas, bodyTop)
             local hint = Lbl(content,
                 "No " .. (isGuild and "guild" or "personal") .. " crafters for " .. prof ..
                 " yet. Pick a name above and click '+ Add Selected'.",
-                12, 0.45, 0.35, 0.20)
+                PANEL_DESC_FONT_SIZE, 0.45, 0.35, 0.20)
             hint:SetPoint("TOPLEFT", content, "TOPLEFT", 6, -yPos)
             yPos = yPos + 24
             table.insert(self.slots, hint)
@@ -1007,6 +1008,127 @@ end
 
 
 -- ══════════════════════════════════════════════════════════════
+-- SETTINGS PAGE — a real second page (not a popup), toggled via the
+-- header's Settings button. Built to the confirmed settings-panel
+-- typography standard from the start: 13px description text, 14px
+-- labels/slider endpoints, no hardcoded description width (two-point
+-- anchor instead), -16 slider-to-description gap, -30 between blocks.
+-- ══════════════════════════════════════════════════════════════
+-- A standalone floating popup (own window, own border, own close button) -
+-- NOT a swapped-in alternate view of the crafter-config window. Settings
+-- opening as a sibling panel next to Options, instead of replacing the
+-- crafter "character sheet" content in place, is the whole point: you're
+-- never staring at a panel that says "Settings" while a "Settings" button
+-- is also still sitting right there doing nothing.
+local function BuildSettingsWindow(canvas)
+    local page = CreateFrame("Frame", "XC_SettingsWindow", UIParent)
+    -- Wider (less text wrapping) and tall enough for the worst-case wrap of
+    -- both descriptions with real margin left over at the bottom - the
+    -- content now grows with the actual (chained) anchors instead of a
+    -- fixed height assumption.
+    -- +50 to fit the minimap-button checkbox row added below the sliders.
+    page:SetSize(440, 430)
+    page:SetFrameStrata("DIALOG")
+    page:SetMovable(true)
+    page:EnableMouse(true)
+    page:RegisterForDrag("LeftButton")
+    page:SetScript("OnDragStart", page.StartMoving)
+    page:SetScript("OnDragStop",  page.StopMovingOrSizing)
+    page:SetClampedToScreen(true)
+    page:Hide()
+
+    Brand.RegisterScalable(page)
+    Brand.ApplyBackground(page)
+    Brand.DrawBorder(page)
+
+    local title = Brand.Title(page, "Settings", 18, "TOP", page, "TOP", 0, -16)
+
+    -- Branded flat "X" button, matching the main Options window and
+    -- Routes' proven standalone settings window - not Blizzard's default
+    -- red-X template.
+    local closeBtn = Brand.MakeButton(page, "X", 24, 24, function() page:Hide() end)
+    closeBtn:SetPoint("TOPRIGHT", page, "TOPRIGHT", -Brand.SAFE_MARGIN, -Brand.SAFE_MARGIN)
+
+    -- Shared slider builder: label + live current-value readout on one
+    -- row, native slider below with real clearance above/below it, then
+    -- the description - generous gaps throughout instead of stacking
+    -- everything edge-to-edge. Two-point anchors (never a hardcoded
+    -- SetWidth) on the text so it can't clip. Low/High endpoint text
+    -- bumped to the label-tier size.
+    --
+    -- Each block anchors to the PREVIOUS block's actual bottom edge
+    -- (anchorTo, chained via the returned descFS) instead of a fixed pixel
+    -- Y - a fixed Y assumes a one-line description, and when the wrapped
+    -- text actually took two lines the next block's label landed on top
+    -- of it. Same pattern Routes' SettingsPanel.lua uses (CreateHeader
+    -- anchoring to the previous element's BOTTOMLEFT).
+    local BLOCK_GAP = 26  -- extra gap below a description before the next block's label
+
+    local function MakeSlider(anchorTo, label, minVal, maxVal, step, current, fmt, desc, onChange)
+        local lbl = Lbl(page, label, PANEL_LABEL_FONT_SIZE, 0.85, 0.75, 0.55, "OUTLINE")
+        if anchorTo then
+            lbl:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, -BLOCK_GAP)
+        else
+            lbl:SetPoint("TOPLEFT", page, "TOPLEFT", Brand.SAFE_MARGIN, -54)
+        end
+
+        -- Live value readout - always shows the CURRENT setting, not just
+        -- the slider's min/max endpoints. Same vertical row as the label.
+        local valueFS = Lbl(page, fmt(current), PANEL_LABEL_FONT_SIZE, 1, 1, 1, "OUTLINE")
+        valueFS:SetPoint("TOP", lbl, "TOP", 0, 0)
+        valueFS:SetPoint("RIGHT", page, "RIGHT", -Brand.SAFE_MARGIN - 4, 0)
+
+        local slider = CreateFrame("Slider", nil, page, "OptionsSliderTemplate")
+        slider:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 4, -20)
+        slider:SetPoint("RIGHT", page, "RIGHT", -Brand.SAFE_MARGIN - 4, 0)
+        slider:SetMinMaxValues(minVal, maxVal)
+        slider:SetValueStep(step)
+        slider:SetObeyStepOnDrag(true)
+        slider:SetValue(current)
+        slider.Text:SetText("")
+        BumpFont(slider.Low,  PANEL_LABEL_FONT_SIZE)
+        BumpFont(slider.High, PANEL_LABEL_FONT_SIZE)
+        slider.Low:SetText(fmt(minVal))
+        slider.High:SetText(fmt(maxVal))
+
+        local descFS = Lbl(page, desc, PANEL_DESC_FONT_SIZE, 0.55, 0.50, 0.40)
+        descFS:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", -4, -22)
+        descFS:SetPoint("RIGHT", page, "RIGHT", -Brand.SAFE_MARGIN, 0)
+        descFS:SetJustifyH("LEFT")
+        descFS:SetWordWrap(true)
+
+        slider:SetScript("OnValueChanged", function(self, value)
+            value = math.floor(value / step + 0.5) * step
+            valueFS:SetText(fmt(value))
+            onChange(value)
+        end)
+
+        return descFS
+    end
+
+    local desc1 = MakeSlider(nil, "UI Size", 0.8, 1.5, 0.05, XC_DB.settings.uiScale,
+        function(v) return string.format("%.2fx", v) end,
+        "Resizes this Options panel, the welcome screen, and the mailbox send window. Applies immediately.",
+        function(v) Brand.SetUIScale(v) end)
+
+    local desc2 = MakeSlider(desc1, "Font Size", 0.8, 1.5, 0.05, XC_DB.settings.fontScale,
+        function(v) return string.format("%.2fx", v) end,
+        "Scales the text size across every panel. Takes effect on panels you open after changing this - reopen this window, or /reload, to apply it to what's already open.",
+        function(v) Brand.SetFontScale(v) end)
+
+    -- Minimap button toggle - chained off the last slider's description
+    -- the same way the sliders chain off each other.
+    local minimapCB = MakeCB(page, "Show the minimap button",
+        not (XC_DB.minimap and XC_DB.minimap.hide),
+        function(checked) XC.MinimapButton:SetShown(checked) end)
+    minimapCB:SetPoint("TOPLEFT", desc2, "BOTTOMLEFT", 4, -BLOCK_GAP)
+    minimapCB.text:SetPoint("RIGHT", page, "RIGHT", -Brand.SAFE_MARGIN, 0)
+
+    return page
+end
+
+
+-- ══════════════════════════════════════════════════════════════
 -- PUBLIC API
 -- ══════════════════════════════════════════════════════════════
 function O:Register()
@@ -1015,44 +1137,81 @@ function O:Register()
 
     local canvas = CreateFrame("Frame", "XC_OptionsCanvas", UIParent)
     canvas:SetSize(CANVAS_W, CANVAS_H)
+    canvas:SetPoint("CENTER")
+    canvas:SetFrameStrata("DIALOG")
+    canvas:SetMovable(true)
+    canvas:EnableMouse(true)
+    canvas:RegisterForDrag("LeftButton")
+    canvas:SetScript("OnDragStart", canvas.StartMoving)
+    canvas:SetScript("OnDragStop",  canvas.StopMovingOrSizing)
+    canvas:SetClampedToScreen(true)
+    canvas:Hide()
     self.canvasFrame = canvas
 
-    local bg = canvas:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(); bg:SetColorTexture(0.035, 0.035, 0.035, 1)
+    -- A standalone floating window we fully control, same as Splash and
+    -- the Mailbox send preview - not embedded in Blizzard's own Settings
+    -- window, so the UI Size slider scales it cleanly with no clipping.
+    Brand.RegisterScalable(canvas)
 
-    -- ── Global header bar ─────────────────────────────────────
-    local hdrBg = canvas:CreateTexture(nil, "BACKGROUND")
-    hdrBg:SetPoint("TOPLEFT");  hdrBg:SetPoint("TOPRIGHT")
-    hdrBg:SetHeight(HEADER_H); hdrBg:SetColorTexture(0.07, 0.05, 0.02, 1)
+    Brand.ApplyBackground(canvas)
+    Brand.DrawBorder(canvas)
 
-    local hdrLine = canvas:CreateTexture(nil, "ARTWORK")
-    hdrLine:SetPoint("BOTTOMLEFT",  hdrBg, "BOTTOMLEFT",  0, 0)
-    hdrLine:SetPoint("BOTTOMRIGHT", hdrBg, "BOTTOMRIGHT", 0, 0)
-    hdrLine:SetHeight(1)
-    hdrLine:SetColorTexture(C_ACCENT[1]*0.5, C_ACCENT[2]*0.5, C_ACCENT[3]*0.5, 1)
+    -- ── Header ─────────────────────────────────────────────────
+    -- Matches Routes' proven standalone settings window (SettingsPanel.lua
+    -- BuildStandaloneWindow, confirmed 2026-08-09) point-for-point: no
+    -- separate header background bar (that's what caused content to
+    -- render outside the border earlier) - just a big centered title,
+    -- a branded "X" close button, and one clean divider below both.
+    -- CENTER, not TOP - centers the title's own vertical midpoint between
+    -- the border's visible top line (6px in, DrawBorder's default inset)
+    -- and the header divider below (y=66): (6+66)/2 = 36.
+    local hdrTitle = Brand.Title(canvas, "Xal's Craft Courier", 30, "CENTER", canvas, "TOP", 0, -36)
 
-    local hdrTitle = canvas:CreateFontString(nil, "OVERLAY")
-    hdrTitle:SetFont("Fonts\\MORPHEUS.TTF", 22, "OUTLINE")
-    hdrTitle:SetTextColor(C_ACCENT[1], C_ACCENT[2], C_ACCENT[3], 1)
-    hdrTitle:SetText("Xal's Craft Courier")
-    hdrTitle:SetPoint("LEFT", hdrBg, "LEFT", 10, 0)
+    -- Branded flat "X" button, NOT Blizzard's default red-X template -
+    -- same reasoning Routes documents: the native template clashes with
+    -- the rest of the panel's look.
+    local closeBtn = Brand.MakeButton(canvas, "X", 24, 24, function() canvas:Hide() end)
+    closeBtn:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", -Brand.SAFE_MARGIN, -Brand.SAFE_MARGIN)
 
-    -- Guild indicator in header — GetGuildInfo can return nil if the guild
-    -- roster hasn't synced from the server yet at the moment this panel is
-    -- first built, so this needs to be able to refresh later, not just once.
+    -- Settings button — opens the Settings window as its own separate
+    -- floating popup (built below) - it does NOT replace this panel's
+    -- content, so the button never has to lie about what it does with a
+    -- "< Back" swap. Same row as the close button, same SAFE_MARGIN inset.
+    local settingsBtn = Brand.MakeButton(canvas, "Settings", 90, 24, nil)
+    settingsBtn:SetPoint("RIGHT", closeBtn, "LEFT", -8, 0)
+
+    -- Guild indicator — left side of the header. Mirrors closeBtn's own
+    -- anchor exactly (TOPLEFT/TOPRIGHT, both offsets = SAFE_MARGIN) - one
+    -- uniform buffer rule applied to both header corners, not a separate
+    -- one-off number for this element. GetGuildInfo can return nil if the
+    -- guild roster hasn't synced from the server yet at the moment this
+    -- panel is first built, so this needs to be able to refresh later,
+    -- not just once.
+    -- Bare text at the same numeric offset as a bordered button reads
+    -- tighter than the button does - the button's own border/backdrop
+    -- already eats into that space, but text has zero built-in padding.
+    -- +10 beyond SAFE_MARGIN wasn't enough on its own - the text starts
+    -- with "<", which has almost no left-side bearing in this font
+    -- (unlike a letter), so the anchor point reads even closer to the
+    -- edge than the same offset would for ordinary text. +18 total.
     local guildLbl = canvas:CreateFontString(nil, "OVERLAY")
-    guildLbl:SetFont("Fonts\\ARIALN.TTF", 11, "")
-    -- Anchored to the title's own measured width, not a guessed fixed
-    -- offset - MORPHEUS renders wider than FRIZQT did, so a hardcoded
-    -- x-position risked the exact same overlap bug fixed twice already.
-    guildLbl:SetPoint("LEFT", hdrTitle, "RIGHT", 16, 0)
+    guildLbl:SetFont("Fonts\\ARIALN.TTF", PANEL_DESC_FONT_SIZE, "")
+    guildLbl:SetPoint("TOPLEFT", canvas, "TOPLEFT", Brand.SAFE_MARGIN + 18, -Brand.SAFE_MARGIN)
     self.guildLbl = guildLbl
     self:RefreshGuildLabel()
+
+    -- Header divider — same helper, same proportions as the standalone
+    -- Routes reference (SAFE_MARGIN in from each side, y=66 below the top).
+    Brand.DrawDivider(canvas, Brand.SAFE_MARGIN, 66, CANVAS_W - 2*Brand.SAFE_MARGIN)
 
     -- ── Body: mode tabs, then three columns — professions, names, grid ──
     local modeTabs = BuildModeTabs(canvas)
     self.modeTabs  = modeTabs
-    local bodyTop  = HEADER_H + MODE_TAB_H
+    -- The three columns start BELOW the tab row, not at the same height as
+    -- it - BODY_TOP is where the tabs themselves start. +8 lifts the
+    -- divider line (each column's own topline) off the tab row's bottom
+    -- edge instead of touching it directly.
+    local bodyTop  = BODY_TOP + MODE_TAB_H + 8
 
     -- NOTE: the divider under the tab row is drawn as each column's OWN
     -- top-edge line (inside BuildProfessionList/BuildNameList/
@@ -1064,6 +1223,13 @@ function O:Register()
     local profList = BuildProfessionList(canvas, bodyTop)
     local nameList = BuildNameList(canvas, bodyTop)
     local grid     = BuildCraftersGrid(canvas, bodyTop)
+
+    local settingsWindow = BuildSettingsWindow(canvas)
+    self.settingsWindow  = settingsWindow
+    settingsWindow:SetPoint("TOPLEFT", canvas, "TOPRIGHT", 14, 0)
+    settingsBtn:SetScript("OnClick", function()
+        if settingsWindow:IsShown() then settingsWindow:Hide() else settingsWindow:Show() end
+    end)
 
     O.SelectProf = function(prof)
         O.activeProf = prof
@@ -1083,11 +1249,9 @@ function O:Register()
     nameList:Refresh()
     O.SelectProf(TAB_ROWS[1][1])
 
-    -- The canvas itself has to exist early (ADDON_LOADED) so the category
-    -- shows up in the AddOns list at all - but nothing says its CONTENT has
-    -- to be frozen from that early snapshot. Every time the panel is
-    -- actually opened, refresh everything to current reality: guild label,
-    -- which guild tabs exist, and the currently-selected view.
+    -- Every time the panel is actually opened, refresh everything to
+    -- current reality: guild label, which guild tabs exist, and the
+    -- currently-selected view.
     canvas:SetScript("OnShow", function()
         O:RefreshGuildLabel()
         modeTabs.Rebuild()
@@ -1103,16 +1267,12 @@ function O:Register()
         if O.altDropdown then O.altDropdown:Hide() end
         if O.guildDropdown then O.guildDropdown:Hide() end
         if O.expansionPopup then O.expansionPopup:Hide() end
+        if O.settingsWindow then O.settingsWindow:Hide() end
         O.expansionPopupCfg = nil
     end)
-
-    local category = Settings.RegisterCanvasLayoutCategory(canvas, "Xal's Craft Courier")
-    category:SetCategorySet(Settings.CategorySet.AddOns)
-    Settings.RegisterAddOnCategory(category)
-    self.categoryID = category:GetID()
 end
 
 function O:Open()
     if not self.registered then self:Register() end
-    Settings.OpenToCategory(self.categoryID)
+    self.canvasFrame:Show()
 end

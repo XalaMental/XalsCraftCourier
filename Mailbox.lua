@@ -2,7 +2,7 @@
 -- Mailbox.lua  —  Xal's Craft Courier
 --
 -- Handles everything that happens at the mailbox:
---   • Injects "⚒ Send to Crafters" button into the Send Mail frame
+--   • Injects a "Send to Crafters" button into the Send Mail frame
 --   • Scans bags and maps every item to the right crafter using
 --     the full profConfig (expansion + item type filters)
 --   • Button opens a send panel with Personal / Guild tabs — always a
@@ -22,6 +22,7 @@
 XC = XC or {}
 XC.Mailbox = {}
 local M = XC.Mailbox
+local Brand = XC.BrandStyle
 
 -- Internal state
 M.queue      = {}      -- ordered list of pending mails to send
@@ -113,8 +114,7 @@ function M:ShowButton()
     -- UIParent with a fixed position means our button's visibility only
     -- ever depends on our own MAIL_SHOW/MAIL_CLOSED handling, never on
     -- whatever frame another addon happens to be showing or hiding.
-    local btn = CreateFrame("Button", "XC_MailboxBtn", UIParent)
-    btn:SetSize(170, 32)
+    local btn = Brand.MakeButton(UIParent, "Send to Crafters", 170, 32, nil)
     btn:SetFrameStrata("DIALOG")
     btn:SetFrameLevel(100)
 
@@ -129,7 +129,6 @@ function M:ShowButton()
         btn:SetPoint("TOP", UIParent, "TOP", 320, -140)
     end
     btn:SetMovable(true)
-    btn:EnableMouse(true)
     btn:RegisterForDrag("LeftButton")
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
@@ -137,53 +136,16 @@ function M:ShowButton()
         XC_DB.settings.courierBtnLocked = false
     end
 
-    -- Solid dark fill — unlike the panel elements, this button floats
-    -- directly over the busy 3D game world with no panel behind it, so
-    -- border-only isn't enough contrast; text blends into the terrain.
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.035, 0.035, 0.035, 1)
-
-    -- Border — single clean line on all 4 sides, same treatment as the
-    -- splash screen and every other panel in the addon. Kept as a table
-    -- so the lock state can recolor them (gold = locked, green = unlocked
-    -- and draggable) instead of needing a separate lock icon.
-    local borderLines = {}
-    local function BtnLine(x, y, w, h)
-        local t = btn:CreateTexture(nil, "ARTWORK")
-        t:SetPoint("TOPLEFT", btn, "TOPLEFT", x, -y)
-        t:SetSize(w, h)
-        table.insert(borderLines, t)
-        return t
-    end
-    BtnLine(0, 0, 170, 2)      -- top
-    BtnLine(0, 30, 170, 2)     -- bottom
-    BtnLine(0, 0, 2, 32)       -- left
-    BtnLine(168, 0, 2, 32)     -- right
-
+    -- Lock state recolors the border (gold = locked, green = unlocked and
+    -- draggable) via Brand.MakeButton's own SetBorderColor hook, instead
+    -- of a separate lock icon.
     local function RestyleLock()
         local locked = XC_DB.settings.courierBtnLocked
-        local c = locked and { 0.72, 0.55, 0.22 } or { 0.15, 0.85, 0.25 }
-        for _, line in ipairs(borderLines) do
-            line:SetColorTexture(c[1], c[2], c[3], 1)
-        end
+        local c = locked and Brand.ACCENT or { 0.15, 0.85, 0.25 }
+        btn:SetBorderColor(c[1], c[2], c[3], 1)
     end
     btn.RestyleLock = RestyleLock
     RestyleLock()
-
-    local lbl = btn:CreateFontString(nil, "OVERLAY")
-    lbl:SetFont("Fonts\\ARIALN.TTF", 14, "OUTLINE")
-    lbl:SetPoint("CENTER"); lbl:SetText("Send to Crafters")
-    lbl:SetTextColor(0.72, 0.55, 0.22, 1)
-
-    btn:SetScript("OnMouseDown", function()
-        bg:SetColorTexture(0.02, 0.02, 0.02, 1)
-        lbl:SetPoint("CENTER", btn, "CENTER", 1, -1)
-    end)
-    btn:SetScript("OnMouseUp", function()
-        bg:SetColorTexture(0.035, 0.035, 0.035, 1)
-        lbl:SetPoint("CENTER", btn, "CENTER", 0,  0)
-    end)
 
     btn:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" then
@@ -208,8 +170,8 @@ function M:ShowButton()
         XC_DB.settings.courierBtnPos = { point = point, relPoint = relPoint, x = x, y = y }
     end)
 
-    btn:SetScript("OnEnter", function()
-        bg:SetColorTexture(0.08, 0.08, 0.08, 1)
+    -- Tooltip layered on top of Brand.MakeButton's own hover feedback.
+    btn:HookScript("OnEnter", function()
         GameTooltip:SetOwner(btn, "ANCHOR_TOP")
         GameTooltip:AddLine("Xal's Craft Courier")
         GameTooltip:AddLine("Choose Personal or Guild, then Send All.", 0.8, 0.8, 0.8, true)
@@ -219,10 +181,7 @@ function M:ShowButton()
             or  "Drag to move. Right-click to lock in place.", 0.4, 0.85, 0.5, true)
         GameTooltip:Show()
     end)
-    btn:SetScript("OnLeave", function()
-        bg:SetColorTexture(0.035, 0.035, 0.035, 1)
-        GameTooltip:Hide()
-    end)
+    btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
     self.button = btn
 end
@@ -467,14 +426,12 @@ function M:SelectTab(mode)
 
     local function styleTab(btn, active)
         local c = btn.color
-        if active then
-            btn.bg:SetColorTexture(c[1]*0.35, c[2]*0.35, c[3]*0.35, 1)
-            btn.lbl:SetTextColor(1, 1, 1, 1)
-            btn.line:SetAlpha(1)
-        else
-            btn.bg:SetColorTexture(0.08, 0.08, 0.08, 1)
-            btn.lbl:SetTextColor(c[1]*0.8, c[2]*0.8, c[3]*0.8, 1)
-            btn.line:SetAlpha(0.35)
+        btn:SetSelected(active)
+        if not active then
+            btn:SetBorderColor(c[1]*0.8, c[2]*0.8, c[3]*0.8, 1)
+            btn.label:SetTextColor(c[1]*0.8, c[2]*0.8, c[3]*0.8, 1)
+        elseif c ~= Brand.ACCENT then
+            btn:SetBorderColor(c[1], c[2], c[3], 1)
         end
     end
     styleTab(f.tabPersonal, mode == "personal")
@@ -618,57 +575,32 @@ function M:BuildPreviewFrame()
     f:SetScript("OnDragStop",  f.StopMovingOrSizing)
     f:SetClampedToScreen(true)
 
-    -- Background — fully opaque, matching the splash screen (no
+    -- A standalone floating window we fully control - scales cleanly.
+    Brand.RegisterScalable(f)
+
+    -- Background — fully opaque, matching every other panel (no
     -- translucency for anything behind it, e.g. nameplates, to show through)
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(); bg:SetColorTexture(0.035, 0.035, 0.035, 1)
+    Brand.ApplyBackground(f)
+    Brand.DrawBorder(f)
 
-    -- Border — single clean line, same treatment as the splash screen
-    -- (no ornate corners/double lines)
-    local function BLine(x, y, w, h)
-        local t = f:CreateTexture(nil, "ARTWORK")
-        t:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
-        t:SetSize(w, h); t:SetColorTexture(0.72, 0.55, 0.22, 1)
-    end
-    local B_INSET, B_THICK = 6, 2
-    BLine(B_INSET, B_INSET,   FW-B_INSET*2, B_THICK)              -- top
-    BLine(B_INSET, FH-B_INSET, FW-B_INSET*2, B_THICK)             -- bottom
-    BLine(B_INSET, B_INSET,   B_THICK, FH-B_INSET*2)              -- left
-    BLine(FW-B_INSET, B_INSET, B_THICK, FH-B_INSET*2)             -- right
-
-    -- Title — MORPHEUS.TTF, same treatment as the splash screen's title
-    local title = f:CreateFontString(nil, "OVERLAY")
-    title:SetFont("Fonts\\MORPHEUS.TTF", 24, "OUTLINE")
-    title:SetTextColor(0.72, 0.55, 0.22, 1)
-    title:SetText("Send Preview")
-    title:SetPoint("TOP", f, "TOP", 0, -24)
+    -- Title — same branded Morpheus treatment as every other panel.
+    local title = Brand.Title(f, "Send Preview", 24, "TOP", f, "TOP", 0, -24)
 
     -- ── TAB BAR (Personal / Guild) ──────────────────────────────
     -- Always a deliberate, separate choice — never an automatic
-    -- fallback between the two crafter sets.
-    local ACCENT = { 0.72, 0.55, 0.22 }   -- warm bronze-gold, matches the addon icon
-    local GREEN  = { 0.10, 0.62, 0.18 }
+    -- fallback between the two crafter sets. Guild keeps its own green
+    -- border/label color instead of the shared accent gold, same
+    -- color-coding convention used throughout the addon.
+    local GREEN = { 0.10, 0.62, 0.18 }
 
     local function MakeTabBtn(text, color, x)
-        local btn = CreateFrame("Button", nil, f)
-        btn:SetSize(180, 24)
+        local btn = Brand.MakeButton(f, text, 180, 24, nil)
         btn:SetPoint("TOP", f, "TOP", x, -58)
-        local bg = btn:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        btn.bg = bg
-        local line = btn:CreateTexture(nil, "ARTWORK")
-        line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT")
-        line:SetHeight(2); line:SetColorTexture(color[1], color[2], color[3], 1)
-        btn.line = line
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont("Fonts\\ARIALN.TTF", 12, "OUTLINE")
-        lbl:SetPoint("CENTER"); lbl:SetText(text)
-        btn.lbl   = lbl
         btn.color = color
         return btn
     end
 
-    local tabPersonal = MakeTabBtn("Personal", ACCENT, -95)
+    local tabPersonal = MakeTabBtn("Personal", Brand.ACCENT, -95)
     local tabGuild    = MakeTabBtn("Guild",    GREEN,  95)
     tabPersonal:SetScript("OnClick", function() M:SelectTab("personal") end)
     tabGuild:SetScript("OnClick",    function() M:SelectTab("guild")    end)
@@ -676,10 +608,7 @@ function M:BuildPreviewFrame()
     f.tabGuild    = tabGuild
 
     -- Divider
-    local div = f:CreateTexture(nil, "ARTWORK")
-    div:SetPoint("TOPLEFT",  f, "TOPLEFT",  20, -90)
-    div:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -90)
-    div:SetHeight(1); div:SetColorTexture(0.32, 0.24, 0.10, 1)
+    Brand.DrawDivider(f, 20, 90, FW-40)
 
     -- Profession sidebar (left) — only lists professions that actually
     -- have something queued for the current tab; click one to filter the
@@ -695,7 +624,7 @@ function M:BuildPreviewFrame()
     local sideDiv = f:CreateTexture(nil, "ARTWORK")
     sideDiv:SetPoint("TOPLEFT",    sidebar, "TOPRIGHT", 8, 0)
     sideDiv:SetPoint("BOTTOMLEFT", sidebar, "BOTTOMRIGHT", 8, 0)
-    sideDiv:SetWidth(1); sideDiv:SetColorTexture(0.32, 0.24, 0.10, 1)
+    sideDiv:SetWidth(Brand.LINE_THICKNESS); sideDiv:SetColorTexture(0.32, 0.24, 0.10, 1)
 
     -- Scroll area for content
     local sf = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
@@ -710,23 +639,10 @@ function M:BuildPreviewFrame()
 
     -- Bottom buttons
     local function MakePreviewBtn(text, x, primary)
-        local btn = CreateFrame("Button", nil, f)
-        btn:SetSize(130, 32)
+        local btn = Brand.MakeButton(f, text, 130, 32, nil)
         btn:SetPoint("BOTTOM", f, "BOTTOM", x, 16)
-        local bbg = btn:CreateTexture(nil, "BACKGROUND")
-        bbg:SetAllPoints()
-        local base = primary and 0.18 or 0.11
-        bbg:SetColorTexture(base, base, base, 1)
-        local et = btn:CreateTexture(nil, "OVERLAY")
-        et:SetPoint("TOPLEFT"); et:SetPoint("TOPRIGHT")
-        et:SetHeight(1); et:SetColorTexture(0.30, 0.30, 0.30, 1)
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont("Fonts\\ARIALN.TTF", 12, "OUTLINE")
-        lbl:SetPoint("CENTER"); lbl:SetText(text)
-        lbl:SetTextColor(primary and 0.77 or 0.45, primary and 0.10 or 0.18, primary and 0.10 or 0.18, 1)
-        btn:SetScript("OnEnter", function() bbg:SetColorTexture(base+0.06, base+0.06, base+0.06, 1) end)
-        btn:SetScript("OnLeave", function() bbg:SetColorTexture(base, base, base, 1) end)
-        btn.lbl = lbl
+        if primary then btn:SetSelected(true) end
+        btn.lbl = btn.label
         return btn
     end
 
@@ -820,25 +736,15 @@ function M:RebuildProfSidebar()
     for _, b in ipairs(f.profButtons) do b:Hide(); b:SetParent(UIParent) end
     f.profButtons = {}
 
-    -- Real graphic assets (generated art, chroma-keyed to a transparent
-    -- PNG) instead of hand-drawn textures or a stock Blizzard skin.
-    local TEX_NORMAL = "Interface\\AddOns\\XalsCraftCourier\\Media\\XCButtonNormal.png"
-    local TEX_PUSHED = "Interface\\AddOns\\XalsCraftCourier\\Media\\XCButtonPushed.png"
-
     local function MakeSideBtn(prof, y)
-        local btn = CreateFrame("Button", nil, f.sidebar)
-        btn:SetSize(108, 22)
+        local btn
+        btn = Brand.MakeButton(f.sidebar, prof, 108, 22, function()
+            if not f.configured[btn.prof] then return end
+            f.activeProf = btn.prof
+            M:RenderPreviewList()
+        end)
         btn:SetPoint("TOPLEFT", f.sidebar, "TOPLEFT", 0, -y)
-        btn:SetNormalTexture(TEX_NORMAL)
-        btn:SetPushedTexture(TEX_PUSHED)
-        btn:SetDisabledTexture(TEX_PUSHED)
         btn.prof = prof
-
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont("Fonts\\ARIALN.TTF", 11, "OUTLINE")
-        lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        lbl:SetText(prof)
-        btn.lbl = lbl
 
         -- Ready-to-send mark - a dot, not a Unicode checkmark (✓ is one
         -- of the glyphs this game's fonts render as an empty box).
@@ -849,11 +755,6 @@ function M:RebuildProfSidebar()
         mark:Hide()
         btn.mark = mark
 
-        btn:SetScript("OnClick", function()
-            if not f.configured[btn.prof] then return end
-            f.activeProf = btn.prof
-            self:RenderPreviewList()
-        end)
         return btn
     end
 
@@ -876,18 +777,10 @@ function M:RestyleProfSidebar()
 
         if hasCraft then
             btn:Enable()
-            btn.lbl:SetTextColor(active and 1 or 0.85, active and 0.9 or 0.72, active and 0.6 or 0.45, 1)
         else
             btn:Disable()
-            btn.lbl:SetTextColor(0.35, 0.32, 0.28, 1)
         end
-
-        -- The currently selected profession rests in the "pushed" look
-        -- rather than only flashing pushed on an actual mouse-down -
-        -- same graphic, just shown persistently while active.
-        btn:GetNormalTexture():SetTexture(active
-            and "Interface\\AddOns\\XalsCraftCourier\\Media\\XCButtonPushed.png"
-            or  "Interface\\AddOns\\XalsCraftCourier\\Media\\XCButtonNormal.png")
+        btn:SetSelected(active)
     end
 end
 
@@ -908,7 +801,7 @@ function M:RenderPreviewList()
 
     local function AddLine(text, r, g, b)
         local fs = content:CreateFontString(nil, "OVERLAY")
-        fs:SetFont("Fonts\\ARIALN.TTF", 12, "")
+        fs:SetFont("Fonts\\ARIALN.TTF", Brand.DESC_FONT_SIZE, "")
         fs:SetTextColor(r or 0.7, g or 0.7, b or 0.7, 1)
         fs:SetText(text)
         fs:SetJustifyH("LEFT")
@@ -925,7 +818,7 @@ function M:RenderPreviewList()
             -- Profession header
             local hdr = AddLine(prof, 0.72, 0.55, 0.22)
             hdr:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
-            hdr:SetFont("Fonts\\FRIZQT__.TTF", 13, "OUTLINE")
+            hdr:SetFont("Fonts\\FRIZQT__.TTF", Brand.BUTTON_LABEL_SIZE, "OUTLINE")
             y = y + lineH + 2
 
             for recipient, data in pairs(byProf[prof]) do

@@ -2,15 +2,22 @@
 ## Title: Xal's Craft Courier
 ## Notes: Personal & Guild Crafting Logistics Platform. /xcc for help.
 ## Author: Xal
-## Version: 1.0.2
+## Version: 1.0.4
 ## X-Curse-Project-ID: 1643447
 ## IconTexture: Interface\AddOns\XalsCraftCourier\Icon.png
 ## SavedVariables: XC_DB
 ## SavedVariablesPerCharacter: XC_CharDB
 
-# Load order: Core (creates the shared XC table) → Data → UI files
+# Load order: libs → Core (creates the shared XC table) → shared brand/whats-new → Data → UI files → minimap button
+libs\LibStub\LibStub.lua
+libs\CallbackHandler\CallbackHandler-1.0.lua
+libs\LibDataBroker\LibDataBroker-1.1.lua
+libs\LibDBIcon\LibDBIcon-1.0.lua
 Core.lua
+BrandStyle.lua
+WhatsNew.lua
 Data.lua
 Splash.lua
 Options.lua
 Mailbox.lua
+MinimapButton.lua
